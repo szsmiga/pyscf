@@ -268,8 +268,15 @@ def _gamma2_intermediates(mycc, t1, t2, l1, l2, eris=None,
 def _gamma2_outcore(mycc, t1, t2, l1, l2, eris, h5fobj, compress_vvvv=False):
     return _gamma2_intermediates(mycc, t1, t2, l1, l2, eris, compress_vvvv)
 
-def make_rdm1(mycc, t1, t2, l1, l2, eris=None, ao_repr=False):
-    d1 = _gamma1_intermediates(mycc, t1, t2, l1, l2, eris)
+def make_rdm1(mycc, t1, t2, l1, l2, eris=None, ao_repr=False, relaxed=False):
+    '''1-particle density matrix in MO space.
+
+    Args:
+        relaxed (bool): Whether to include the off-diagonal OO and VV
+            contributions from the perturbative triples correction. The
+            ``relaxed=True`` branch is required by analytic gradients.
+    '''
+    d1 = _gamma1_intermediates(mycc, t1, t2, l1, l2, eris, for_grad=relaxed)
     return uccsd_rdm._make_rdm1(mycc, d1, True, ao_repr=ao_repr)
 
 # rdm2 in Chemist's notation
