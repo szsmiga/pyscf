@@ -1151,8 +1151,8 @@ class CCSDBase(lib.StreamObject):
         raise NotImplementedError
 
     def make_rdm1(self, t1=None, t2=None, l1=None, l2=None, ao_repr=False,
-                  with_frozen=True, with_mf=True):
-        '''Un-relaxed 1-particle density matrix in MO space'''
+                  with_frozen=True, with_mf=True, relaxed=False):
+        '''1-particle density matrix in MO space'''
         raise NotImplementedError
 
     def make_rdm2(self, t1=None, t2=None, l1=None, l2=None, ao_repr=False,
@@ -1330,16 +1330,18 @@ class CCSD(CCSDBase):
         return eom_rccsd.EOMEE(self)
 
     def make_rdm1(self, t1=None, t2=None, l1=None, l2=None, ao_repr=False,
-                  with_frozen=True, with_mf=True):
-        '''Un-relaxed 1-particle density matrix in MO space'''
+                  with_frozen=True, with_mf=True, relaxed=False):
+        '''1-particle density matrix in MO space'''
         from pyscf.cc import ccsd_rdm
         if t1 is None: t1 = self.t1
         if t2 is None: t2 = self.t2
         if l1 is None: l1 = self.l1
         if l2 is None: l2 = self.l2
         if l1 is None: l1, l2 = self.solve_lambda(t1, t2)
+        eris = self.ao2mo() if relaxed else None
         return ccsd_rdm.make_rdm1(self, t1, t2, l1, l2, ao_repr=ao_repr,
-                                  with_frozen=with_frozen, with_mf=with_mf)
+                                  with_frozen=with_frozen, with_mf=with_mf,
+                                  relaxed=relaxed, eris=eris)
 
     def make_rdm2(self, t1=None, t2=None, l1=None, l2=None, ao_repr=False,
                   with_frozen=True, with_dm1=True):
