@@ -202,9 +202,11 @@ class KnownValues(unittest.TestCase):
         eris = mycc.ao2mo()
         dm1 = uccsd_t_rdm.make_rdm1(mycc, t1, t2, l1, l2, eris)
         dm2 = uccsd_t_rdm.make_rdm2(mycc, t1, t2, l1, l2, eris)
+        dm1_relaxed = uccsd_t_rdm.make_rdm1(mycc, t1, t2, l1, l2, eris=eris, relaxed=True)
         trdm1 = dm1[0] + dm1[1]
         trdm2 = dm2[0] + dm2[1] + dm2[1].transpose(2,3,0,1) + dm2[2]
         self.assertAlmostEqual(abs(trdm1 - dm1ref).max(), 0, 12)
+        self.assertGreater(abs((dm1_relaxed[0] + dm1_relaxed[1]) - trdm1).max(), 1e-10)
         self.assertAlmostEqual(abs(trdm2 - dm2ref).max(), 0, 12)
 
         ecc = mycc.kernel(eris=eris)[0]

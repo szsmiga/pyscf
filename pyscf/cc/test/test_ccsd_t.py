@@ -194,6 +194,34 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(e0, e1.real, 9)
         self.assertAlmostEqual(e1, -0.98756910139720788-0.0019567929592079489j, 9)
 
+
+    def test_ccsd_t_relaxed_rdm1_co_ccpvtz(self):
+        from pyscf.cc import ccsd_t_lambda
+        from pyscf.cc import ccsd_t_rdm
+
+        mol = gto.M(
+            atom='C 0.0 0.0 0.0; O 0.0 0.0 -1.128',
+            basis='cc-pvtz',
+            unit='Angstrom',
+            verbose=0,
+        )
+        mf = scf.RHF(mol).run(conv_tol=1e-12)
+        mcc = mf.CCSD().run(conv_tol=1e-10, conv_tol_normt=1e-8)
+
+        eris = mcc.ao2mo()
+        t1, t2 = mcc.t1, mcc.t2
+        l1, l2 = ccsd_t_lambda.kernel(mcc, eris, t1, t2)[1:]
+
+        dm1 = ccsd_t_rdm.make_rdm1(mcc, t1, t2, l1, l2, eris=eris)
+        dm1_relaxed = ccsd_t_rdm.make_rdm1(
+            mcc, t1, t2, l1, l2, eris=eris, relaxed=True)
+        self.assertGreater(numpy.linalg.norm(dm1_relaxed - dm1), 1e-9)
+
+        dm1_relaxed_ao = ccsd_t_rdm.make_rdm1(
+            mcc, t1, t2, l1, l2, eris=eris, ao_repr=True, relaxed=True)
+        dip = mf.dip_moment(mol, dm1_relaxed_ao, unit='Debye', verbose=0)
+        self.assertAlmostEqual(abs(dip[2]), 0.1703, 3)
+
     def test_ccsd_t_rdm(self):
         mol = gto.Mole()
         mol.atom = [
@@ -217,6 +245,8 @@ class KnownValues(unittest.TestCase):
         eri_mo = eri_mo.reshape(nmo,nmo,nmo,nmo)
         dm1 = ccsd_t_rdm.make_rdm1(mcc, t1, t2, l1, l2, eris=eris)
         dm2 = ccsd_t_rdm.make_rdm2(mcc, t1, t2, l1, l2, eris=eris)
+        dm1_relaxed = ccsd_t_rdm.make_rdm1(mcc, t1, t2, l1, l2, eris=eris, relaxed=True)
+        self.assertGreater(numpy.linalg.norm(dm1_relaxed - dm1), 1e-10)
         h1 = reduce(numpy.dot, (mf.mo_coeff.T, mf.get_hcore(), mf.mo_coeff))
         e3 =(numpy.einsum('ij,ji->', h1, dm1) +
              numpy.einsum('ijkl,ijkl->', eri_mo, dm2)*.5 + mf.mol.energy_nuc())
