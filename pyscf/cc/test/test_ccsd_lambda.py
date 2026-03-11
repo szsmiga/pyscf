@@ -111,6 +111,14 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(numpy.dot(l2new.flatten(), numpy.sin(numpy.arange(35**2))), 137.758016736487, 8)
         self.assertAlmostEqual(numpy.dot(numpy.sin(l2new.flatten()), numpy.arange(35**2)), 507.656936701192, 8)
 
+
+    def test_relaxed_rdm1(self):
+        mcc = mycc.copy()
+        mcc.solve_lambda()
+        dm1 = mcc.make_rdm1(with_mf=False)
+        dm1_relaxed = mcc.make_rdm1(with_mf=False, relaxed=True)
+        self.assertGreater(numpy.linalg.norm(dm1_relaxed - dm1), 1e-10)
+
     def test_restart(self):
         ftmp = tempfile.NamedTemporaryFile()
         cc1 = mycc.copy()

@@ -18,6 +18,7 @@
 
 
 import numpy
+from functools import reduce
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf import ao2mo
@@ -214,7 +215,8 @@ def _gamma2_outcore(mycc, t1, t2, l1, l2, h5fobj, compress_vvvv=False):
     return (h5fobj['dovov'], h5fobj['dvvvv'], h5fobj['doooo'], h5fobj['doovv'],
             h5fobj['dovvo'], dvvov          , h5fobj['dovvv'], h5fobj['dooov'])
 
-def make_rdm1(mycc, t1, t2, l1, l2, ao_repr=False, with_frozen=True, with_mf=True):
+def make_rdm1(mycc, t1, t2, l1, l2, ao_repr=False, with_frozen=True,
+              with_mf=True, relaxed=False, eris=None):
     r'''
     Spin-traced one-particle density matrix in MO basis (the occupied-virtual
     blocks from the orbital response contribution are not included).
@@ -224,9 +226,63 @@ def make_rdm1(mycc, t1, t2, l1, l2, ao_repr=False, with_frozen=True, with_mf=Tru
     The convention of 1-pdm is based on McWeeney's book, Eq (5.4.20).
     The contraction between 1-particle Hamiltonian and rdm1 is
     E = einsum('pq,qp', h1, rdm1)
+
+    Args:
+        relaxed (bool): Whether to include orbital-response relaxation terms
+            in the OV/VO blocks. This implementation currently supports only
+            the no-frozen-orbital case.
     '''
     d1 = _gamma1_intermediates(mycc, t1, t2, l1, l2)
-    return _make_rdm1(mycc, d1, with_frozen=with_frozen, ao_repr=ao_repr, with_mf=with_mf)
+    dm1 = _make_rdm1(mycc, d1, with_frozen=with_frozen, ao_repr=False,
+                     with_mf=with_mf)
+    if not relaxed:
+        if ao_repr:
+            mo = mycc.mo_coeff
+            dm1 = lib.einsum('pi,ij,qj->pq', mo, dm1, mo.conj())
+        return dm1
+
+    if mycc.frozen is not None:
+        raise NotImplementedError('relaxed=True for CCSD RDM with frozen orbitals is not supported')
+
+    from pyscf.grad import ccsd as ccsd_grad
+    nocc = numpy.count_nonzero(mycc.mo_occ > 0)
+    mo_coeff = mycc.mo_coeff
+
+    fdm2 = lib.H5TmpFile()
+    d2 = _gamma2_outcore(mycc, t1, t2, l1, l2, fdm2, True)
+    ccsd_grad._rdm2_mo2ao(mycc, d2, mo_coeff, fdm2)
+
+    mol = mycc.mol
+    nao = mo_coeff.shape[0]
+    diagidx = numpy.arange(nao)
+    diagidx = diagidx*(diagidx+1)//2 + diagidx
+    offsetdic = mol.offset_nr_by_atom()
+    max_memory = max(0, mycc.max_memory - lib.current_memory()[0])
+    blksize = max(1, int(max_memory*.9e6/8/(nao**3*2.5)))
+    Imat = numpy.zeros((nao, nao))
+    ip1 = 0
+    for ia in range(mol.natm):
+        shl0, shl1, _, _ = offsetdic[ia]
+        for b0, b1, nf in ccsd_grad._shell_prange(mol, shl0, shl1, blksize):
+            ip0, ip1 = ip1, ip1 + nf
+            dm2buf = ccsd_grad._load_block_tril(fdm2['dm2'], ip0, ip1, nao)
+            dm2buf[:, :, diagidx] *= .5
+            shls_slice = (b0, b1, 0, mol.nbas, 0, mol.nbas, 0, mol.nbas)
+            eri0 = mol.intor('int2e', aosym='s2kl', shls_slice=shls_slice)
+            Imat += lib.einsum('ipx,iqx->pq', eri0.reshape(nf, nao, -1), dm2buf)
+
+    Imat = reduce(numpy.dot, (mo_coeff.T, Imat, mycc._scf.get_ovlp(), mo_coeff)) * -1
+    dm1_nohf = dm1.copy()
+    if with_mf:
+        dm1_nohf[numpy.diag_indices(nocc)] -= 2
+    vhf = mycc._scf.get_veff(mycc.mol, dm1_nohf) * 2
+    Xvo = reduce(numpy.dot, (mo_coeff[:,nocc:].T, vhf, mo_coeff[:,:nocc]))
+    Xvo += Imat[:nocc,nocc:].T - Imat[nocc:,:nocc]
+    dm1 += ccsd_grad._response_dm1(mycc, Xvo, eris)
+
+    if ao_repr:
+        dm1 = lib.einsum('pi,ij,qj->pq', mo_coeff, dm1, mo_coeff.conj())
+    return dm1
 
 def make_rdm2(mycc, t1, t2, l1, l2, ao_repr=False, with_frozen=True, with_dm1=True):
     r'''
